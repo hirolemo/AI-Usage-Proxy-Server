@@ -106,7 +106,7 @@ Settings via environment variables or `.env` file:
 - `ADMIN_API_KEY` (default: `admin-secret-key`)
 - `HOST` (default: `0.0.0.0`)
 - `PORT` (default: `8000`)
-- `DATABASE_PATH` (default: `./proxy.db`)
+- `DATABASE_PATH` (default: `./db/proxy.db`)
 
 ## Database Schema
 

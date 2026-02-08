@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     # Database settings
-    database_url: str = "sqlite+aiosqlite:///./proxy.db"
-    database_path: str = "./proxy.db"
+    database_url: str = "sqlite+aiosqlite:///./db/proxy.db"
+    database_path: str = "./db/proxy.db"
 
     # Admin settings
     admin_api_key: str = "admin-secret-key"
