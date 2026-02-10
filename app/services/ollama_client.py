@@ -9,6 +9,17 @@ from ..models.schemas import ChatCompletionRequest, ContentPart
 settings = get_settings()
 
 
+class OllamaError(Exception):
+    """Base exception for Ollama client errors."""
+
+    def __init__(self, message: str, error_type: str = "server_error", status_code: int = 502, param: str | None = None):
+        self.message = message
+        self.error_type = error_type
+        self.status_code = status_code
+        self.param = param
+        super().__init__(message)
+
+
 class OllamaClient:
     def __init__(self):
         self.base_url = settings.ollama_base_url
@@ -67,6 +78,10 @@ class OllamaClient:
         if options:
             payload["options"] = options
 
+        # Handle response_format
+        if request.response_format and request.response_format.type == "json_object":
+            payload["format"] = "json"
+
         return payload
 
     def _process_image(self, url: str) -> str | None:
@@ -93,16 +108,51 @@ class OllamaClient:
         payload = self._transform_request(request)
         payload["stream"] = False
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
 
-        # Transform Ollama response to OpenAI format
-        return self._transform_response(data, request.model)
+            # Transform Ollama response to OpenAI format
+            return self._transform_response(data, request.model)
+
+        except httpx.HTTPStatusError as e:
+            # Map Ollama errors to structured errors
+            if e.response.status_code == 404:
+                raise OllamaError(
+                    message=f"Model '{request.model}' not found",
+                    error_type="invalid_request_error",
+                    status_code=404,
+                    param="model",
+                )
+            elif e.response.status_code == 400:
+                raise OllamaError(
+                    message="Invalid request to Ollama",
+                    error_type="invalid_request_error",
+                    status_code=400,
+                )
+            elif e.response.status_code >= 500:
+                raise OllamaError(
+                    message="Ollama server error",
+                    error_type="server_error",
+                    status_code=502,
+                )
+            else:
+                raise OllamaError(
+                    message=f"Ollama request failed: {e.response.status_code}",
+                    error_type="server_error",
+                    status_code=502,
+                )
+        except httpx.RequestError as e:
+            raise OllamaError(
+                message="Unable to connect to Ollama server",
+                error_type="server_error",
+                status_code=503,
+            )
 
     async def chat_completion_stream(
         self, request: ChatCompletionRequest
@@ -111,29 +161,90 @@ class OllamaClient:
         payload = self._transform_request(request)
         payload["stream"] = True
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/api/chat",
-                json=payload,
-            ) as response:
-                response.raise_for_status()
-
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                ) as response:
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as e:
+                        # Map Ollama errors to structured errors
+                        if e.response.status_code == 404:
+                            error_chunk = {
+                                "error": {
+                                    "message": f"Model '{request.model}' not found",
+                                    "type": "invalid_request_error",
+                                    "param": "model",
+                                }
+                            }
+                        elif e.response.status_code == 400:
+                            error_chunk = {
+                                "error": {
+                                    "message": "Invalid request to Ollama",
+                                    "type": "invalid_request_error",
+                                }
+                            }
+                        else:
+                            error_chunk = {
+                                "error": {
+                                    "message": "Ollama server error",
+                                    "type": "server_error",
+                                }
+                            }
+                        yield f"data: {json.dumps(error_chunk)}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
 
                     try:
-                        chunk_data = json.loads(line)
-                        transformed = self._transform_stream_chunk(chunk_data, request.model)
-                        yield f"data: {json.dumps(transformed)}\n\n"
+                        async for line in response.aiter_lines():
+                            if not line:
+                                continue
 
-                        # Check if this is the final chunk
-                        if chunk_data.get("done", False):
-                            yield "data: [DONE]\n\n"
-                            return
-                    except json.JSONDecodeError:
-                        continue
+                            try:
+                                chunk_data = json.loads(line)
+                                # Check stream_options for usage inclusion
+                                include_usage = True
+                                if request.stream_options:
+                                    include_usage = request.stream_options.include_usage
+
+                                transformed = self._transform_stream_chunk(
+                                    chunk_data, request.model, include_usage
+                                )
+                                yield f"data: {json.dumps(transformed)}\n\n"
+
+                                # Check if this is the final chunk
+                                if chunk_data.get("done", False):
+                                    yield "data: [DONE]\n\n"
+                                    return
+                            except json.JSONDecodeError:
+                                continue
+
+                    except Exception as e:
+                        # Mid-stream error handling
+                        error_chunk = {
+                            "error": {
+                                "message": "Stream interrupted",
+                                "type": "server_error",
+                            }
+                        }
+                        yield f"data: {json.dumps(error_chunk)}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+
+        except httpx.RequestError as e:
+            # Connection error before stream starts
+            error_chunk = {
+                "error": {
+                    "message": "Unable to connect to Ollama server",
+                    "type": "server_error",
+                }
+            }
+            yield f"data: {json.dumps(error_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
     def _transform_response(self, ollama_response: dict, model: str) -> dict:
         """Transform Ollama response to OpenAI format."""
@@ -167,7 +278,7 @@ class OllamaClient:
             },
         }
 
-    def _transform_stream_chunk(self, ollama_chunk: dict, model: str) -> dict:
+    def _transform_stream_chunk(self, ollama_chunk: dict, model: str, include_usage: bool = True) -> dict:
         """Transform Ollama streaming chunk to OpenAI format."""
         import time
 
@@ -191,8 +302,8 @@ class OllamaClient:
             ],
         }
 
-        # Include usage in final chunk
-        if is_done:
+        # Include usage in final chunk if requested
+        if is_done and include_usage:
             prompt_tokens = ollama_chunk.get("prompt_eval_count", 0)
             completion_tokens = ollama_chunk.get("eval_count", 0)
             chunk["usage"] = {

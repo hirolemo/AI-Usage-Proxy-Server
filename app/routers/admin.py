@@ -9,6 +9,11 @@ from ..models.schemas import (
     UsageSummary,
     UsageResponse,
     ModelUsage,
+    ModelPricingCreate,
+    ModelPricingResponse,
+    ModelPricingListResponse,
+    PricingHistoryEntry,
+    PricingHistoryResponse,
 )
 from ..middleware.auth import verify_admin_key
 from ..database import (
@@ -20,6 +25,11 @@ from ..database import (
     get_rate_limits,
     update_rate_limits,
     get_usage_stats,
+    set_model_pricing,
+    get_model_pricing,
+    get_all_model_pricing,
+    delete_model_pricing,
+    get_pricing_history,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -124,6 +134,7 @@ async def get_user_usage(
             total_tokens=stats["total_tokens"],
             prompt_tokens=stats["prompt_tokens"],
             completion_tokens=stats["completion_tokens"],
+            total_cost=stats["total_cost"],
             request_count=stats["request_count"],
             by_model={
                 model: ModelUsage(**data)
@@ -174,3 +185,117 @@ async def set_user_limits(
     # Return updated limits
     updated = await get_rate_limits(user_id)
     return RateLimitResponse(user_id=user_id, **updated)
+
+
+# Pricing endpoints
+@router.post("/pricing", response_model=ModelPricingResponse, status_code=201)
+async def create_model_pricing(
+    pricing: ModelPricingCreate,
+    _admin: bool = Depends(verify_admin_key),
+):
+    """Set pricing for a model."""
+    try:
+        await set_model_pricing(
+            model=pricing.model,
+            input_cost_per_million=pricing.input_cost_per_million,
+            output_cost_per_million=pricing.output_cost_per_million,
+        )
+
+        # Fetch and return the created/updated pricing
+        result = await get_model_pricing(pricing.model)
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to retrieve pricing after creation")
+
+        return ModelPricingResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/pricing", response_model=ModelPricingListResponse)
+async def list_model_pricing(
+    _admin: bool = Depends(verify_admin_key),
+):
+    """List all model pricing."""
+    pricing_list = await get_all_model_pricing()
+    return ModelPricingListResponse(
+        pricing=[ModelPricingResponse(**p) for p in pricing_list]
+    )
+
+
+@router.get("/pricing/{model}", response_model=ModelPricingResponse)
+async def get_pricing_for_model(
+    model: str,
+    _admin: bool = Depends(verify_admin_key),
+):
+    """Get pricing for a specific model."""
+    pricing = await get_model_pricing(model)
+    if not pricing:
+        raise HTTPException(status_code=404, detail=f"Pricing not found for model: {model}")
+
+    return ModelPricingResponse(**pricing)
+
+
+@router.put("/pricing/{model}", response_model=ModelPricingResponse)
+async def update_model_pricing(
+    model: str,
+    pricing: ModelPricingCreate,
+    _admin: bool = Depends(verify_admin_key),
+):
+    """Update pricing for a specific model."""
+    # Check if pricing exists
+    existing = await get_model_pricing(model)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Pricing not found for model: {model}")
+
+    # Update pricing
+    try:
+        await set_model_pricing(
+            model=model,
+            input_cost_per_million=pricing.input_cost_per_million,
+            output_cost_per_million=pricing.output_cost_per_million,
+        )
+
+        # Fetch and return the updated pricing
+        result = await get_model_pricing(model)
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to retrieve pricing after update")
+
+        return ModelPricingResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/pricing/{model}")
+async def remove_model_pricing(
+    model: str,
+    _admin: bool = Depends(verify_admin_key),
+):
+    """Delete pricing for a model."""
+    success = await delete_model_pricing(model)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Pricing not found for model: {model}")
+
+    return {"message": f"Pricing for model {model} deleted successfully"}
+
+
+@router.get("/pricing/history/all", response_model=PricingHistoryResponse)
+async def get_all_pricing_history(
+    _admin: bool = Depends(verify_admin_key),
+):
+    """Get pricing change history for all models."""
+    history = await get_pricing_history()
+    return PricingHistoryResponse(
+        history=[PricingHistoryEntry(**h) for h in history]
+    )
+
+
+@router.get("/pricing/history/{model}", response_model=PricingHistoryResponse)
+async def get_model_pricing_history(
+    model: str,
+    _admin: bool = Depends(verify_admin_key),
+):
+    """Get pricing change history for a specific model."""
+    history = await get_pricing_history(model)
+    return PricingHistoryResponse(
+        history=[PricingHistoryEntry(**h) for h in history]
+    )

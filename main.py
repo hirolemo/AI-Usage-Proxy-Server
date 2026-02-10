@@ -14,10 +14,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import init_db
 from app.middleware.auth import AuthMiddleware
+from app.middleware.request_id import RequestIdMiddleware
 from app.routers import completions_router, admin_router, usage_router
 
 settings = get_settings()
@@ -59,6 +61,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add request ID middleware (before auth so request_id is available everywhere)
+app.add_middleware(RequestIdMiddleware)
+
 # Add authentication middleware
 app.add_middleware(AuthMiddleware)
 
@@ -66,6 +71,9 @@ app.add_middleware(AuthMiddleware)
 app.include_router(completions_router)
 app.include_router(usage_router)
 app.include_router(admin_router)
+
+# Mount static files for demo UI
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.get("/")

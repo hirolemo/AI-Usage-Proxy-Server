@@ -19,6 +19,14 @@ class ChatMessage(BaseModel):
     content: str | list[ContentPart]
 
 
+class StreamOptions(BaseModel):
+    include_usage: bool = True
+
+
+class ResponseFormat(BaseModel):
+    type: Literal["text", "json_object"] = "text"
+
+
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: list[ChatMessage]
@@ -29,6 +37,13 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: float | None = None
     presence_penalty: float | None = None
     stop: str | list[str] | None = None
+    stream_options: StreamOptions | None = None
+    response_format: ResponseFormat | None = None
+    # Unsupported fields (for warnings)
+    tools: list | None = None
+    tool_choice: str | dict | None = None
+    logprobs: bool | None = None
+    logit_bias: dict | None = None
 
 
 class Usage(BaseModel):
@@ -109,6 +124,7 @@ class RateLimitResponse(BaseModel):
 class ModelUsage(BaseModel):
     total_tokens: int
     request_count: int
+    total_cost: float = 0.0
 
 
 class UsageResponse(BaseModel):
@@ -116,6 +132,7 @@ class UsageResponse(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     request_count: int
+    total_cost: float = 0.0
     by_model: dict[str, ModelUsage]
 
 
@@ -135,3 +152,35 @@ class RateLimitError(BaseModel):
     error: str = "rate_limit_exceeded"
     message: str
     retry_after: int | None = None
+
+
+# Pricing Models
+class ModelPricingCreate(BaseModel):
+    model: str = Field(..., min_length=1)
+    input_cost_per_million: float = Field(..., ge=0.0)
+    output_cost_per_million: float = Field(..., ge=0.0)
+
+
+class ModelPricingResponse(BaseModel):
+    model: str
+    input_cost_per_million: float
+    output_cost_per_million: float
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ModelPricingListResponse(BaseModel):
+    pricing: list[ModelPricingResponse]
+
+
+class PricingHistoryEntry(BaseModel):
+    id: int
+    model: str
+    input_cost_per_million: float
+    output_cost_per_million: float
+    changed_by: str
+    changed_at: datetime
+
+
+class PricingHistoryResponse(BaseModel):
+    history: list[PricingHistoryEntry]

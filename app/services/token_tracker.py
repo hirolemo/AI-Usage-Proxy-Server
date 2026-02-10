@@ -1,7 +1,7 @@
 import json
 from typing import AsyncGenerator
 
-from ..database import record_usage, get_usage_stats
+from ..database import record_usage, get_usage_stats, calculate_cost
 
 
 class TokenTracker:
@@ -13,15 +13,22 @@ class TokenTracker:
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
+        request_id: str | None = None,
     ) -> None:
         """Record token usage for a request."""
         total_tokens = prompt_tokens + completion_tokens
+
+        # Calculate cost based on model pricing
+        cost = await calculate_cost(model, prompt_tokens, completion_tokens)
+
         await record_usage(
             user_id=user_id,
             model=model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
+            cost=cost,
+            request_id=request_id,
         )
 
     async def track_from_response(

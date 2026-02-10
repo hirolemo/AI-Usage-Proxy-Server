@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     default_tokens_per_day: int = 1000000
     default_total_token_limit: int | None = None  # None means unlimited
 
+    # File upload settings
+    max_upload_size_mb: int = 10
+    allowed_image_types: list[str] = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

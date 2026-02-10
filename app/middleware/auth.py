@@ -23,6 +23,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path in self.PUBLIC_PATHS:
             return await call_next(request)
 
+        # Skip auth for static files
+        if path.startswith("/static"):
+            return await call_next(request)
+
         # Skip auth for admin paths (handled separately)
         if path.startswith("/admin"):
             return await call_next(request)

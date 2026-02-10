@@ -19,6 +19,7 @@ async def get_my_usage(
         total_tokens=stats["total_tokens"],
         prompt_tokens=stats["prompt_tokens"],
         completion_tokens=stats["completion_tokens"],
+        total_cost=stats["total_cost"],
         request_count=stats["request_count"],
         by_model={
             model: ModelUsage(**data)
@@ -38,5 +39,6 @@ async def get_usage_summary(
     return {
         "user_id": user_id,
         "total_tokens": stats["total_tokens"],
+        "total_cost": stats["total_cost"],
         "by_model": stats["by_model"],
     }
