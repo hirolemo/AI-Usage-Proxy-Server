@@ -41,7 +41,7 @@ if LOCUST_AVAILABLE:
                 "/v1/chat/completions",
                 headers=self.headers,
                 json={
-                    "model": "llama3.2",
+                    "model": "llama3.2:1b",
                     "messages": [{"role": "user", "content": "Hi"}],
                     "max_tokens": 10,
                 },
@@ -71,7 +71,7 @@ def run_quick_load_test():
 
     BASE_URL = "http://localhost:8000"
     API_KEY = os.environ.get("TEST_API_KEY", "sk-test-user")
-    MODEL = os.environ.get("TEST_MODEL", "llama3.2")
+    MODEL = os.environ.get("TEST_MODEL", "llama3.2:1b")
     HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
     num_requests = 50

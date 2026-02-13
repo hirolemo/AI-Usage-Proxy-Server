@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends
 from ..models.schemas import UsageResponse, ModelUsage
 from ..middleware.auth import get_current_user
 from ..services.token_tracker import token_tracker
+from ..database import get_all_model_pricing
 
 router = APIRouter(prefix="/v1", tags=["usage"])
 
 
-@router.get("/usage", response_model=UsageResponse)
+@router.get("/usage")
 async def get_my_usage(
     current_user: dict = Depends(get_current_user),
 ):
@@ -15,7 +16,7 @@ async def get_my_usage(
     user_id = current_user["id"]
     stats = await token_tracker.get_user_usage(user_id)
 
-    return UsageResponse(
+    response = UsageResponse(
         total_tokens=stats["total_tokens"],
         prompt_tokens=stats["prompt_tokens"],
         completion_tokens=stats["completion_tokens"],
@@ -26,6 +27,9 @@ async def get_my_usage(
             for model, data in stats["by_model"].items()
         },
     )
+    result = response.model_dump()
+    result["user_id"] = user_id
+    return result
 
 
 @router.get("/usage/summary")
@@ -42,3 +46,10 @@ async def get_usage_summary(
         "total_cost": stats["total_cost"],
         "by_model": stats["by_model"],
     }
+
+
+@router.get("/pricing")
+async def get_pricing(current_user: dict = Depends(get_current_user)):
+    """Get current model pricing (read-only for users)."""
+    pricing = await get_all_model_pricing()
+    return {"pricing": [dict(p) if not isinstance(p, dict) else p for p in pricing]}

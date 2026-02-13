@@ -34,6 +34,8 @@ from ..database import (
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+ALLOWED_MODELS = ["llama3.2:1b", "moondream"]
+
 
 @router.post("/users", response_model=UserResponse)
 async def create_new_user(
@@ -194,6 +196,11 @@ async def create_model_pricing(
     _admin: bool = Depends(verify_admin_key),
 ):
     """Set pricing for a model."""
+    if pricing.model not in ALLOWED_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model must be one of: {', '.join(ALLOWED_MODELS)}",
+        )
     try:
         await set_model_pricing(
             model=pricing.model,
@@ -207,6 +214,8 @@ async def create_model_pricing(
             raise HTTPException(status_code=500, detail="Failed to retrieve pricing after creation")
 
         return ModelPricingResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

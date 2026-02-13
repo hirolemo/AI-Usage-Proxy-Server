@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     # Ollama settings
     ollama_base_url: str = "http://localhost:11434"
+    ollama_max_concurrent: int = 1
 
     # Database settings
     database_url: str = "sqlite+aiosqlite:///./db/proxy.db"

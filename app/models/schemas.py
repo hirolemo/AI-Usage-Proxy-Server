@@ -123,6 +123,8 @@ class RateLimitResponse(BaseModel):
 # Usage Models
 class ModelUsage(BaseModel):
     total_tokens: int
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     request_count: int
     total_cost: float = 0.0
 

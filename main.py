@@ -21,6 +21,7 @@ from app.database import init_db
 from app.middleware.auth import AuthMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.routers import completions_router, admin_router, usage_router
+from app.services.ollama_client import ollama_client
 
 settings = get_settings()
 
@@ -28,14 +29,25 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler - runs on startup and shutdown."""
-    # Startup: Initialize database
+    # Startup
+    print()
+    print("=" * 46)
+    print("|                                            |")
+    print("|          AI Proxy Usage Server             |")
+    print("|                                            |")
+    print("=" * 46)
+    print()
+
     await init_db()
+    await ollama_client.startup()
     print(f"Database initialized at {settings.database_path}")
-    print(f"Proxy server ready. Forwarding requests to {settings.ollama_base_url}")
+    print(f"Forwarding requests to {settings.ollama_base_url}\n")
+    print(f"Navigate to: http://localhost:{settings.port}/static/index.html")
 
     yield
 
-    # Shutdown: Cleanup if needed
+    # Shutdown: Cleanup
+    await ollama_client.shutdown()
     print("Shutting down...")
 
 

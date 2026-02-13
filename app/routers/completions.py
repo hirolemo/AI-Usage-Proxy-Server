@@ -13,6 +13,8 @@ from ..config import get_settings
 
 router = APIRouter(prefix="/v1", tags=["completions"])
 
+ALLOWED_MODELS = ["llama3.2:1b", "moondream"]
+
 
 def _check_unsupported_features(request: ChatCompletionRequest) -> list[dict]:
     """Check for unsupported OpenAI features and return warnings."""
@@ -295,12 +297,28 @@ async def list_models(
         # Transform to OpenAI format
         models = []
         for model in data.get("models", []):
+            name = model.get("name", "")
+            if name.endswith(":latest"):
+                name = name[:-7]
+            if name not in ALLOWED_MODELS:
+                continue
             models.append({
-                "id": model.get("name", ""),
+                "id": name,
                 "object": "model",
                 "created": 0,
                 "owned_by": "ollama",
             })
+
+        # Ensure all allowed models are always present
+        present_ids = {m["id"] for m in models}
+        for allowed in ALLOWED_MODELS:
+            if allowed not in present_ids:
+                models.append({
+                    "id": allowed,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "ollama",
+                })
 
         return {"object": "list", "data": models}
 

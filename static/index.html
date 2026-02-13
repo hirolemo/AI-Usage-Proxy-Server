@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Usage Proxy Server - Demo UI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1>AI Usage Proxy Server</h1>
+            <div class="key-inputs">
+                <div class="input-group">
+                    <label for="api-key">API Key</label>
+                    <div class="password-input">
+                        <input type="password" id="api-key" placeholder="sk-user123-..." autocomplete="off">
+                        <button type="button" id="toggle-api-key" class="toggle-visibility">Go</button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="admin-key">Admin Key</label>
+                    <div class="password-input">
+                        <input type="password" id="admin-key" placeholder="admin-secret-key" autocomplete="off">
+                        <button type="button" id="toggle-admin-key" class="toggle-visibility">Go</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <button class="nav-btn active" data-panel="chat">💬 Chat</button>
+            <button class="nav-btn" data-panel="usage">📊 Usage</button>
+            <button class="nav-btn" data-panel="admin">⚙️ Admin</button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Chat Panel -->
+            <div id="chat-panel" class="panel active">
+                <div class="panel-header">
+                    <h2>Chat</h2>
+                    <div class="chat-controls">
+                        <select id="model-select" class="model-select" disabled>
+                            <option value="">Loading models...</option>
+                        </select>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="stream-toggle" checked>
+                            <span>Stream</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <div class="empty-state">
+                            <p>Enter your API key above to get started</p>
+                        </div>
+                    </div>
+
+                    <div class="chat-input-container">
+                        <div id="file-preview" class="file-preview" style="display: none;"></div>
+                        <div id="image-url-row" class="image-url-row" style="display: none;">
+                            <input type="text" id="image-url-input" placeholder="Paste image URL..." disabled>
+                            <button type="button" id="add-image-url-btn" class="btn-small btn-primary" disabled>Add</button>
+                            <button type="button" id="cancel-image-url-btn" class="btn-small">Cancel</button>
+                        </div>
+                        <div class="chat-input-row">
+                            <input type="file" id="image-upload" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display: none;">
+                            <button id="upload-btn" class="icon-btn" title="Upload image file" disabled>📎</button>
+                            <button id="image-url-btn" class="icon-btn" title="Add image URL" disabled>🔗</button>
+                            <textarea id="chat-input" placeholder="Type your message..." rows="1" disabled></textarea>
+                            <button id="send-btn" class="send-btn" disabled>Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Usage Panel -->
+            <div id="usage-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Usage Statistics</h2>
+                    <button id="refresh-usage-btn" class="btn-secondary" disabled>Refresh</button>
+                </div>
+
+                <div class="empty-state">
+                    <p>Enter your API key above to view usage statistics</p>
+                </div>
+
+                <div id="usage-content" style="display: none;">
+                    <!-- Summary Cards -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">Total Requests</div>
+                            <div class="stat-value" id="total-requests">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Prompt Tokens</div>
+                            <div class="stat-value" id="prompt-tokens">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Completion Tokens</div>
+                            <div class="stat-value" id="completion-tokens">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Total Tokens</div>
+                            <div class="stat-value" id="total-tokens">0</div>
+                        </div>
+                        <div class="stat-card" id="cost-card" style="display: none;">
+                            <div class="stat-label">Total Cost</div>
+                            <div class="stat-value" id="total-cost">$0.00</div>
+                        </div>
+                    </div>
+
+                    <!-- Per-Model Breakdown -->
+                    <div class="section">
+                        <h3>Usage by Model</h3>
+                        <div class="table-container">
+                            <table id="usage-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Model</th>
+                                        <th>Requests</th>
+                                        <th>Prompt Tokens</th>
+                                        <th>Completion Tokens</th>
+                                        <th>Total Tokens</th>
+                                        <th class="cost-column" style="display: none;">Cost</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="6" style="text-align: center;">No usage data yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- User Pricing (read-only) -->
+                    <div class="section" id="user-pricing-section" style="display: none;">
+                        <h3>Model Pricing</h3>
+                        <div class="table-container">
+                            <table id="user-pricing-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Model</th>
+                                        <th>Input Cost (per 1M tokens)</th>
+                                        <th>Output Cost (per 1M tokens)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="3" style="text-align: center;">No pricing data</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Panel -->
+            <div id="admin-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Admin</h2>
+                </div>
+
+                <div class="empty-state">
+                    <p>Enter your admin key above to access admin functions</p>
+                </div>
+
+                <div id="admin-content" style="display: none;">
+                    <!-- Create User Section -->
+                    <div class="section">
+                        <h3>Create User</h3>
+                        <form id="create-user-form" class="form">
+                            <div class="form-group">
+                                <label for="new-user-id">User ID</label>
+                                <input type="text" id="new-user-id" placeholder="user123" required>
+                            </div>
+                            <button type="submit" class="btn-primary">Create User</button>
+                        </form>
+                        <div id="new-api-key-display" class="api-key-display" style="display: none;">
+                            <label>Generated API Key:</label>
+                            <div class="key-copy-container">
+                                <code id="new-api-key-value"></code>
+                                <button type="button" id="copy-api-key-btn" class="btn-copy">Copy</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User List Section -->
+                    <div class="section">
+                        <h3>Users</h3>
+                        <button id="refresh-users-btn" class="btn-secondary">Refresh</button>
+                        <div class="table-container">
+                            <table id="users-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>User ID</th>
+                                        <th>API Key</th>
+                                        <th>Created At</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="4" style="text-align: center;">Loading users...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Rate Limits Section -->
+                    <div class="section">
+                        <h3>Rate Limits</h3>
+                        <form id="rate-limits-form" class="form">
+                            <div class="form-group">
+                                <label for="limit-user-select">User</label>
+                                <select id="limit-user-select" required>
+                                    <option value="">Select a user...</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="requests-per-minute">Requests / Minute</label>
+                                    <input type="number" id="requests-per-minute" placeholder="60" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="requests-per-day">Requests / Day</label>
+                                    <input type="number" id="requests-per-day" placeholder="1000" min="0">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="tokens-per-minute">Tokens / Minute</label>
+                                    <input type="number" id="tokens-per-minute" placeholder="100000" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="tokens-per-day">Tokens / Day</label>
+                                    <input type="number" id="tokens-per-day" placeholder="1000000" min="0">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="total-token-limit">Total Token Limit (optional)</label>
+                                <input type="number" id="total-token-limit" placeholder="Unlimited" min="0">
+                            </div>
+                            <button type="submit" class="btn-primary">Update Limits</button>
+                        </form>
+                    </div>
+
+                    <!-- Pricing Management (Phase 2) -->
+                    <div id="pricing-management-section" class="section" style="display: none;">
+                        <h3>Model Pricing</h3>
+                        <form id="pricing-form" class="form">
+                            <div class="form-group">
+                                <label for="pricing-model">Model</label>
+                                <select id="pricing-model" required>
+                                    <option value="">Select a model...</option>
+                                    <option value="llama3.2:1b">llama3.2:1b</option>
+                                    <option value="moondream">moondream</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="input-cost">Input Cost (per 1M tokens)</label>
+                                    <input type="number" id="input-cost" placeholder="0.15" step="0.01" min="0" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="output-cost">Output Cost (per 1M tokens)</label>
+                                    <input type="number" id="output-cost" placeholder="0.60" step="0.01" min="0" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-primary">Set Pricing</button>
+                        </form>
+
+                        <h3>Current Pricing</h3>
+                        <button id="refresh-pricing-btn" class="btn-secondary">Refresh</button>
+                        <div class="table-container">
+                            <table id="pricing-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Model</th>
+                                        <th>Input Cost (per 1M)</th>
+                                        <th>Output Cost (per 1M)</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="4" style="text-align: center;">No pricing configured</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Pricing History (Phase 2) -->
+                    <div id="pricing-history-section" class="section" style="display: none;">
+                        <h3>Pricing History</h3>
+                        <div id="pricing-change-log" class="table-container">
+                            <table id="pricing-history-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Model</th>
+                                        <th>Input Cost (per 1M)</th>
+                                        <th>Output Cost (per 1M)</th>
+                                        <th>Changed At</th>
+                                        <th>Changed By</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Load JavaScript -->
+    <script src="app.js"></script>
+</body>
+</html>

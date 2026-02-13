@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import json
 import base64
@@ -24,6 +25,21 @@ class OllamaClient:
     def __init__(self):
         self.base_url = settings.ollama_base_url
         self.timeout = httpx.Timeout(120.0, connect=10.0)
+        self._client: httpx.AsyncClient | None = None
+        self._semaphore: asyncio.Semaphore | None = None
+
+    async def startup(self):
+        """Initialize shared HTTP client and concurrency semaphore."""
+        max_concurrent = settings.ollama_max_concurrent
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._client = httpx.AsyncClient(timeout=self.timeout)
+        print(f"Max concurrent Ollama requests: {max_concurrent}")
+
+    async def shutdown(self):
+        """Close the shared HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
 
     def _transform_request(self, request: ChatCompletionRequest) -> dict:
         """Transform OpenAI-format request to Ollama format."""
@@ -109,8 +125,8 @@ class OllamaClient:
         payload["stream"] = False
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
+            async with self._semaphore:
+                response = await self._client.post(
                     f"{self.base_url}/api/chat",
                     json=payload,
                 )
@@ -162,8 +178,8 @@ class OllamaClient:
         payload["stream"] = True
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream(
+            async with self._semaphore:
+                async with self._client.stream(
                     "POST",
                     f"{self.base_url}/api/chat",
                     json=payload,

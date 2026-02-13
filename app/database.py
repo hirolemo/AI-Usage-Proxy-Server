@@ -298,6 +298,8 @@ async def get_usage_stats(user_id: str) -> dict:
         cursor = await db.execute(
             """SELECT model,
                       COALESCE(SUM(total_tokens), 0) as total_tokens,
+                      COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                      COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                       COALESCE(SUM(cost), 0.0) as total_cost,
                       COUNT(*) as request_count
                FROM usage WHERE user_id = ?
@@ -305,7 +307,15 @@ async def get_usage_stats(user_id: str) -> dict:
             (user_id,),
         )
         rows = await cursor.fetchall()
-        by_model = {row["model"]: {"total_tokens": row["total_tokens"], "total_cost": row["total_cost"], "request_count": row["request_count"]} for row in rows}
+        by_model = {
+            row["model"]: {
+                "total_tokens": row["total_tokens"],
+                "prompt_tokens": row["prompt_tokens"],
+                "completion_tokens": row["completion_tokens"],
+                "total_cost": row["total_cost"],
+                "request_count": row["request_count"],
+            } for row in rows
+        }
 
         return {**total_stats, "by_model": by_model}
 
