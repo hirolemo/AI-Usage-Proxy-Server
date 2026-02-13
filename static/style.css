@@ -796,6 +796,44 @@ tbody tr:hover {
     margin-left: 8px;
 }
 
+/* ===== Pagination ===== */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 8px 0;
+}
+
+.pagination .btn-small {
+    background: var(--primary-color);
+    color: white;
+}
+
+.pagination .btn-small:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+.pagination .btn-small:disabled {
+    background: var(--text-secondary);
+    cursor: not-allowed;
+}
+
+#history-page-info {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+/* ===== Request History Prompt Cell ===== */
+.prompt-cell {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+}
+
 /* ===== Responsive Design ===== */
 @media (max-width: 768px) {
     .header-content {

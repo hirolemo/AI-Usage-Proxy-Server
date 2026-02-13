@@ -11,9 +11,11 @@ const state = {
     models: [],
     hasValidApiKey: false,
     hasValidAdminKey: false,
-    costTrackingEnabled: false,  // Will be enabled if backend supports it
-    uploadEndpointAvailable: false,  // Will be enabled if backend supports it
-    pricingApiAvailable: false  // Will be enabled if backend supports it
+    costTrackingEnabled: false,
+    uploadEndpointAvailable: false,
+    pricingApiAvailable: false,
+    historyOffset: 0,
+    historyLimit: 20
 };
 
 // ===== Toast Notifications =====
@@ -728,6 +730,9 @@ async function loadUsageStats() {
 
         // Load user-facing pricing
         loadUserPricing();
+
+        // Load request history
+        loadRequestHistory();
     } catch (error) {
         console.error('Failed to load usage stats:', error);
     }
@@ -773,6 +778,73 @@ async function loadUserPricing() {
             });
         }
     }
+}
+
+// ===== Request History =====
+async function loadRequestHistory() {
+    try {
+        const data = await apiCall(`/v1/usage/history?limit=${state.historyLimit}&offset=${state.historyOffset}`);
+        const records = data.records || [];
+        const tbody = document.querySelector('#request-history-table tbody');
+        tbody.innerHTML = '';
+
+        if (records.length === 0 && data.total === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No requests yet</td></tr>';
+            document.getElementById('history-pagination').style.display = 'none';
+            return;
+        }
+
+        records.forEach(record => {
+            const row = document.createElement('tr');
+            const preview = record.prompt_preview || '-';
+            const shortPreview = preview.length > 60 ? preview.substring(0, 60) + '...' : preview;
+            const date = new Date(record.timestamp).toLocaleString();
+            row.innerHTML = `
+                <td class="prompt-cell" title="${preview.replace(/"/g, '&quot;')}">${shortPreview}</td>
+                <td>${record.model}</td>
+                <td>${record.prompt_tokens}</td>
+                <td>${record.completion_tokens}</td>
+                <td>${record.total_tokens}</td>
+                ${state.costTrackingEnabled ? `<td class="cost-column">$${(record.cost || 0).toFixed(4)}</td>` : ''}
+                <td>${date}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        updateHistoryPagination(data);
+    } catch (error) {
+        console.error('Failed to load request history:', error);
+    }
+}
+
+function updateHistoryPagination(data) {
+    const pagination = document.getElementById('history-pagination');
+    const prevBtn = document.getElementById('history-prev-btn');
+    const nextBtn = document.getElementById('history-next-btn');
+    const pageInfo = document.getElementById('history-page-info');
+
+    if (data.total <= data.limit) {
+        pagination.style.display = 'none';
+        return;
+    }
+
+    pagination.style.display = 'flex';
+    const currentPage = Math.floor(data.offset / data.limit) + 1;
+    const totalPages = Math.ceil(data.total / data.limit);
+    pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+
+    prevBtn.disabled = data.offset === 0;
+    nextBtn.disabled = !data.has_more;
+}
+
+function historyPrevPage() {
+    state.historyOffset = Math.max(0, state.historyOffset - state.historyLimit);
+    loadRequestHistory();
+}
+
+function historyNextPage() {
+    state.historyOffset += state.historyLimit;
+    loadRequestHistory();
 }
 
 // ===== Admin Panel =====
@@ -1080,6 +1152,7 @@ function switchPanel(panelName) {
 
     // Load data for the panel
     if (panelName === 'usage' && state.hasValidApiKey) {
+        state.historyOffset = 0;
         loadUsageStats();
     } else if (panelName === 'admin' && state.adminKey) {
         loadUsers();
@@ -1184,6 +1257,10 @@ function initializeEventListeners() {
 
     // Usage
     document.getElementById('refresh-usage-btn').addEventListener('click', loadUsageStats);
+
+    // Request history pagination
+    document.getElementById('history-prev-btn').addEventListener('click', historyPrevPage);
+    document.getElementById('history-next-btn').addEventListener('click', historyNextPage);
 
     // Admin forms
     document.getElementById('create-user-form').addEventListener('submit', createUser);

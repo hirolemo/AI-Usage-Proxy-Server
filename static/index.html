@@ -141,6 +141,34 @@
                         </div>
                     </div>
 
+                    <!-- Request History -->
+                    <div class="section" id="request-history-section">
+                        <h3>Request History</h3>
+                        <div class="table-container">
+                            <table id="request-history-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Request</th>
+                                        <th>Model</th>
+                                        <th>Prompt Tokens</th>
+                                        <th>Completion Tokens</th>
+                                        <th>Total Tokens</th>
+                                        <th class="cost-column" style="display: none;">Cost</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="7" style="text-align: center;">No requests yet</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="history-pagination" class="pagination" style="display: none;">
+                            <button id="history-prev-btn" class="btn-small" disabled>Previous</button>
+                            <span id="history-page-info"></span>
+                            <button id="history-next-btn" class="btn-small">Next</button>
+                        </div>
+                    </div>
+
                     <!-- User Pricing (read-only) -->
                     <div class="section" id="user-pricing-section" style="display: none;">
                         <h3>Model Pricing</h3>

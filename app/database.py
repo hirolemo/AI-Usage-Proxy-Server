@@ -1,11 +1,22 @@
+import asyncio
+import logging
+import secrets
+
 import aiosqlite
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-import secrets
 
 from .config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
+
+MAX_WRITE_RETRIES = 5
+RETRY_BASE_DELAY = 0.1  # seconds
+
+# Connection pool
+_pool: asyncio.Queue | None = None
+_pool_size = 20
 
 SCHEMA = """
 -- Users table
@@ -67,9 +78,23 @@ CREATE INDEX IF NOT EXISTS idx_pricing_history_changed_at ON pricing_history(cha
 """
 
 
+async def _create_connection() -> aiosqlite.Connection:
+    """Create a new database connection with optimal settings."""
+    db = await aiosqlite.connect(settings.database_path)
+    db.row_factory = aiosqlite.Row
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA busy_timeout=5000")
+    return db
+
+
 async def init_db() -> None:
-    """Initialize the database with schema."""
+    """Initialize the database with schema and connection pool."""
+    global _pool
+
+    # Create schema with a temporary connection
     async with aiosqlite.connect(settings.database_path) as db:
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA busy_timeout=5000")
         await db.executescript(SCHEMA)
 
         # Migrations - Add cost column to usage table
@@ -88,16 +113,61 @@ async def init_db() -> None:
             # Column already exists
             pass
 
+        # Migrations - Add prompt_preview column to usage table
+        try:
+            await db.execute("ALTER TABLE usage ADD COLUMN prompt_preview TEXT DEFAULT NULL")
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
+
+    # Initialize connection pool
+    _pool = asyncio.Queue(maxsize=_pool_size)
+    for _ in range(_pool_size):
+        conn = await _create_connection()
+        await _pool.put(conn)
+
+
+async def close_db() -> None:
+    """Close all connections in the pool."""
+    global _pool
+    if _pool is not None:
+        while not _pool.empty():
+            try:
+                db = _pool.get_nowait()
+                await db.close()
+            except asyncio.QueueEmpty:
+                break
+        _pool = None
+
 
 @asynccontextmanager
 async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
-    """Get a database connection."""
-    db = await aiosqlite.connect(settings.database_path)
-    db.row_factory = aiosqlite.Row
+    """Get a database connection from the pool."""
+    global _pool
+
+    if _pool is None:
+        # Fallback before pool is initialized (e.g., during init_db itself)
+        db = await _create_connection()
+        try:
+            yield db
+        finally:
+            await db.close()
+        return
+
+    db = await asyncio.wait_for(_pool.get(), timeout=10.0)
     try:
         yield db
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        await db.close()
+        try:
+            _pool.put_nowait(db)
+        except asyncio.QueueFull:
+            await db.close()
 
 
 def generate_api_key(user_id: str) -> str:
@@ -109,7 +179,6 @@ def generate_api_key(user_id: str) -> str:
 async def create_user(user_id: str) -> tuple[str, str]:
     """Create a new user and return (user_id, api_key)."""
     api_key = generate_api_key(user_id)
-    settings = get_settings()
 
     async with get_db() as db:
         await db.execute(
@@ -261,15 +330,26 @@ async def record_usage(
     total_tokens: int,
     cost: float = 0.0,
     request_id: str | None = None,
+    prompt_preview: str | None = None,
 ) -> None:
-    """Record token usage for a request."""
-    async with get_db() as db:
-        await db.execute(
-            """INSERT INTO usage (user_id, model, prompt_tokens, completion_tokens, total_tokens, cost, request_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, model, prompt_tokens, completion_tokens, total_tokens, cost, request_id),
-        )
-        await db.commit()
+    """Record token usage for a request. Retries on database lock."""
+    for attempt in range(MAX_WRITE_RETRIES):
+        try:
+            async with get_db() as db:
+                await db.execute(
+                    """INSERT INTO usage (user_id, model, prompt_tokens, completion_tokens, total_tokens, cost, request_id, prompt_preview)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (user_id, model, prompt_tokens, completion_tokens, total_tokens, cost, request_id, prompt_preview),
+                )
+                await db.commit()
+                return
+        except aiosqlite.OperationalError as e:
+            if "database is locked" in str(e) and attempt < MAX_WRITE_RETRIES - 1:
+                delay = RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(f"Database locked on record_usage, retrying in {delay:.1f}s (attempt {attempt + 1}/{MAX_WRITE_RETRIES})")
+                await asyncio.sleep(delay)
+            else:
+                raise
 
 
 async def get_usage_stats(user_id: str) -> dict:
@@ -353,6 +433,50 @@ async def get_total_tokens(user_id: str) -> int:
         )
         row = await cursor.fetchone()
         return row["total"]
+
+
+async def get_request_history(user_id: str, limit: int = 20, offset: int = 0) -> dict:
+    """Get paginated request history for a user, newest first."""
+    async with get_db() as db:
+        # Get total count
+        cursor = await db.execute(
+            "SELECT COUNT(*) as count FROM usage WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        total = row["count"]
+
+        # Get paginated records
+        cursor = await db.execute(
+            """SELECT id, model, prompt_tokens, completion_tokens, total_tokens,
+                      cost, timestamp, prompt_preview
+               FROM usage WHERE user_id = ?
+               ORDER BY timestamp DESC
+               LIMIT ? OFFSET ?""",
+            (user_id, limit, offset),
+        )
+        rows = await cursor.fetchall()
+        records = [
+            {
+                "id": row["id"],
+                "model": row["model"],
+                "prompt_tokens": row["prompt_tokens"],
+                "completion_tokens": row["completion_tokens"],
+                "total_tokens": row["total_tokens"],
+                "cost": row["cost"],
+                "timestamp": row["timestamp"],
+                "prompt_preview": row["prompt_preview"],
+            }
+            for row in rows
+        ]
+
+        return {
+            "records": records,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < total,
+        }
 
 
 # Pricing functions

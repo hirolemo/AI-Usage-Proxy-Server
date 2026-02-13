@@ -6,13 +6,10 @@ Run with: pytest tests/test_streaming.py -v
 NOTE: These tests require Ollama to be running locally.
 """
 
+import os
+
 import pytest
 from openai import OpenAI
-import os
-import sys
-
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # Skip these tests if Ollama is not available
@@ -24,11 +21,14 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def openai_client():
-    """Create an OpenAI client pointing to our proxy."""
-    # Note: You need to create a user first via admin API
+    """Create an OpenAI client pointing to our proxy.
+
+    Set TEST_API_KEY env var to your user's API key.
+    """
+    api_key = os.environ.get("TEST_API_KEY", "sk-test-user")
     return OpenAI(
         base_url="http://localhost:8000/v1",
-        api_key="sk-test-user",  # Replace with actual API key
+        api_key=api_key,
     )
 
 
@@ -55,12 +55,14 @@ class TestStreaming:
 
     def test_streaming_token_counting(self, openai_client):
         """Test that tokens are counted during streaming."""
-        # Get initial usage
         import httpx
 
+        api_key = os.environ.get("TEST_API_KEY", "sk-test-user")
+
+        # Get initial usage
         initial_usage = httpx.get(
             "http://localhost:8000/v1/usage",
-            headers={"Authorization": "Bearer sk-test-user"},
+            headers={"Authorization": f"Bearer {api_key}"},
         ).json()
 
         # Make streaming request
@@ -77,7 +79,7 @@ class TestStreaming:
         # Check usage increased
         final_usage = httpx.get(
             "http://localhost:8000/v1/usage",
-            headers={"Authorization": "Bearer sk-test-user"},
+            headers={"Authorization": f"Bearer {api_key}"},
         ).json()
 
         assert final_usage["total_tokens"] > initial_usage["total_tokens"]

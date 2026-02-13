@@ -7,42 +7,38 @@ Run with: pytest tests/test_basic.py -v
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
-import sys
-import os
-
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
-from app.database import init_db, create_user, get_db
 
 
 @pytest.fixture(scope="module")
 def client():
-    """Create a test client."""
-    return TestClient(app)
+    """Create a test client with proper lifespan handling."""
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture(scope="module")
-def test_api_key():
-    """Create a test user and return their API key."""
-    import asyncio
+def test_api_key(client):
+    """Create a test user via admin API and return their API key."""
+    response = client.post(
+        "/admin/users",
+        headers={"Authorization": "Bearer admin-secret-key"},
+        json={"user_id": "test-user"},
+    )
+    if response.status_code == 200:
+        return response.json()["api_key"]
 
-    async def setup():
-        await init_db()
-        try:
-            _, api_key = await create_user("test-user")
-            return api_key
-        except Exception:
-            # User might already exist
-            async with get_db() as db:
-                cursor = await db.execute(
-                    "SELECT api_key FROM users WHERE id = ?", ("test-user",)
-                )
-                row = await cursor.fetchone()
-                return row["api_key"] if row else None
+    # User already exists — find their key from the user list
+    resp = client.get(
+        "/admin/users",
+        headers={"Authorization": "Bearer admin-secret-key"},
+    )
+    for user in resp.json()["users"]:
+        if user["user_id"] == "test-user":
+            return user["api_key"]
 
-    return asyncio.get_event_loop().run_until_complete(setup())
+    raise RuntimeError("Could not create or find test-user")
 
 
 class TestHealthEndpoints:
@@ -196,6 +192,91 @@ class TestUsageEndpoints:
         data = response.json()
         assert "total_tokens" in data
         assert "by_model" in data
+
+
+class TestRequestHistory:
+    """Test request history endpoint."""
+
+    def test_get_request_history_empty(self, client, test_api_key):
+        """Test getting request history when empty returns valid structure."""
+        response = client.get(
+            "/v1/usage/history",
+            headers={"Authorization": f"Bearer {test_api_key}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "records" in data
+        assert "total" in data
+        assert "limit" in data
+        assert "offset" in data
+        assert "has_more" in data
+        assert isinstance(data["records"], list)
+
+    def test_get_request_history_pagination_params(self, client, test_api_key):
+        """Test that limit and offset are respected."""
+        response = client.get(
+            "/v1/usage/history?limit=5&offset=0",
+            headers={"Authorization": f"Bearer {test_api_key}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["limit"] == 5
+        assert data["offset"] == 0
+
+    def test_get_request_history_invalid_limit(self, client, test_api_key):
+        """Test that invalid limit returns 422."""
+        response = client.get(
+            "/v1/usage/history?limit=0",
+            headers={"Authorization": f"Bearer {test_api_key}"},
+        )
+        assert response.status_code == 422
+
+    @patch("app.services.ollama_client.ollama_client.chat_completion")
+    def test_request_history_after_completion(
+        self, mock_completion, client, test_api_key
+    ):
+        """Test that prompt_preview appears in history after a completion."""
+        mock_completion.return_value = {
+            "id": "chatcmpl-history-test",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "llama3.2:1b",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hi there!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 8,
+                "completion_tokens": 4,
+                "total_tokens": 12,
+            },
+        }
+
+        # Make a completion request
+        client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {test_api_key}"},
+            json={
+                "model": "llama3.2:1b",
+                "messages": [{"role": "user", "content": "Tell me about history"}],
+            },
+        )
+
+        # Check request history
+        response = client.get(
+            "/v1/usage/history?limit=1",
+            headers={"Authorization": f"Bearer {test_api_key}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["records"]) >= 1
+        latest = data["records"][0]
+        assert latest["prompt_preview"] == "Tell me about history"
+        assert latest["model"] == "llama3.2:1b"
+        assert latest["total_tokens"] == 12
 
 
 if __name__ == "__main__":

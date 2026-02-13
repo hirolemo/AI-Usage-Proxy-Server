@@ -16,6 +16,7 @@ from ..models.schemas import (
     PricingHistoryResponse,
 )
 from ..middleware.auth import verify_admin_key
+from ..config import ALLOWED_MODELS
 from ..database import (
     create_user,
     get_user_by_id,
@@ -33,8 +34,6 @@ from ..database import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-ALLOWED_MODELS = ["llama3.2:1b", "moondream"]
 
 
 @router.post("/users", response_model=UserResponse)

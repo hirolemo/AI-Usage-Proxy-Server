@@ -1,7 +1,7 @@
 import json
 from typing import AsyncGenerator
 
-from ..database import record_usage, get_usage_stats, calculate_cost
+from ..database import record_usage, get_usage_stats, calculate_cost, get_request_history
 
 
 class TokenTracker:
@@ -14,6 +14,7 @@ class TokenTracker:
         prompt_tokens: int,
         completion_tokens: int,
         request_id: str | None = None,
+        prompt_preview: str | None = None,
     ) -> None:
         """Record token usage for a request."""
         total_tokens = prompt_tokens + completion_tokens
@@ -29,6 +30,7 @@ class TokenTracker:
             total_tokens=total_tokens,
             cost=cost,
             request_id=request_id,
+            prompt_preview=prompt_preview,
         )
 
     async def track_from_response(
@@ -36,6 +38,7 @@ class TokenTracker:
         user_id: str,
         model: str,
         response: dict,
+        prompt_preview: str | None = None,
     ) -> None:
         """Extract and track usage from an OpenAI-format response."""
         usage = response.get("usage", {})
@@ -44,6 +47,7 @@ class TokenTracker:
             model=model,
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
+            prompt_preview=prompt_preview,
         )
 
     async def track_streaming_response(
@@ -51,6 +55,7 @@ class TokenTracker:
         user_id: str,
         model: str,
         stream: AsyncGenerator[str, None],
+        prompt_preview: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Wrap a streaming response to track usage from the final chunk.
@@ -80,11 +85,16 @@ class TokenTracker:
                 model=model,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                prompt_preview=prompt_preview,
             )
 
     async def get_user_usage(self, user_id: str) -> dict:
         """Get usage statistics for a user."""
         return await get_usage_stats(user_id)
+
+    async def get_user_request_history(self, user_id: str, limit: int = 20, offset: int = 0) -> dict:
+        """Get paginated request history for a user."""
+        return await get_request_history(user_id, limit, offset)
 
 
 # Singleton instance

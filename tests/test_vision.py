@@ -6,14 +6,11 @@ Run with: pytest tests/test_vision.py -v
 NOTE: These tests require Ollama to be running with a vision model (e.g., moondream).
 """
 
-import pytest
-from openai import OpenAI
 import base64
 import os
-import sys
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
+from openai import OpenAI
 
 
 # Skip these tests if Ollama is not available
@@ -25,10 +22,14 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def openai_client():
-    """Create an OpenAI client pointing to our proxy."""
+    """Create an OpenAI client pointing to our proxy.
+
+    Set TEST_API_KEY env var to your user's API key.
+    """
+    api_key = os.environ.get("TEST_API_KEY", "sk-test-user")
     return OpenAI(
         base_url="http://localhost:8000/v1",
-        api_key="sk-test-user",  # Replace with actual API key
+        api_key=api_key,
     )
 
 

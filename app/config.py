@@ -1,8 +1,14 @@
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from functools import lru_cache
+
+# Models allowed through the proxy
+ALLOWED_MODELS = ["llama3.2:1b", "moondream"]
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     # Server settings
     host: str = "0.0.0.0"
     port: int = 8000
@@ -28,10 +34,6 @@ class Settings(BaseSettings):
     # File upload settings
     max_upload_size_mb: int = 10
     allowed_image_types: list[str] = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 @lru_cache

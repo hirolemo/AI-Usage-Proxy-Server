@@ -1,19 +1,60 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
-import json
 import base64
-from typing import List
+import json
+import logging
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 from ..models.schemas import ChatCompletionRequest, ChatMessage, ContentPart, ImageUrl
 from ..services.ollama_client import ollama_client, OllamaError
 from ..services.token_tracker import token_tracker
 from ..middleware.auth import get_current_user
 from ..middleware.rate_limit import check_rate_limit, rate_limiter
-from ..config import get_settings
+from ..config import get_settings, ALLOWED_MODELS
 
 router = APIRouter(prefix="/v1", tags=["completions"])
 
-ALLOWED_MODELS = ["llama3.2:1b", "moondream"]
+PROMPT_PREVIEW_MAX_LENGTH = 200
+
+
+def _extract_prompt_preview(messages: list) -> str | None:
+    """Extract a truncated preview from the last user message."""
+    # Iterate in reverse to find the most recent user message
+    for msg in reversed(messages):
+        role = msg.role if hasattr(msg, "role") else msg.get("role")
+        if role != "user":
+            continue
+
+        content = msg.content if hasattr(msg, "content") else msg.get("content")
+        if content is None:
+            continue
+
+        # Simple string content
+        if isinstance(content, str):
+            text = content.strip()
+        elif isinstance(content, list):
+            # Multipart content (vision messages) — join text parts
+            text_parts = []
+            for part in content:
+                part_type = part.type if hasattr(part, "type") else part.get("type")
+                if part_type == "text":
+                    part_text = part.text if hasattr(part, "text") else part.get("text", "")
+                    text_parts.append(part_text)
+            text = " ".join(text_parts).strip() if text_parts else "[image]"
+        else:
+            continue
+
+        if not text:
+            continue
+
+        if len(text) > PROMPT_PREVIEW_MAX_LENGTH:
+            return text[:PROMPT_PREVIEW_MAX_LENGTH] + "..."
+        return text
+
+    return None
 
 
 def _check_unsupported_features(request: ChatCompletionRequest) -> list[dict]:
@@ -61,6 +102,9 @@ async def _handle_completion(
     # Check for unsupported features and generate warnings
     warnings = _check_unsupported_features(request)
 
+    # Extract prompt preview for request history
+    prompt_preview = _extract_prompt_preview(request.messages)
+
     if request.stream:
         # Streaming response
         async def generate():
@@ -69,6 +113,7 @@ async def _handle_completion(
                 user_id=user_id,
                 model=request.model,
                 stream=stream,
+                prompt_preview=prompt_preview,
             )
 
             async for chunk in tracked_stream:
@@ -103,6 +148,7 @@ async def _handle_completion(
             user_id=user_id,
             model=request.model,
             response=response,
+            prompt_preview=prompt_preview,
         )
 
         # Update rate limiter with token count
@@ -144,8 +190,8 @@ async def create_chat_completion(
                 }
             },
         )
-    except Exception as e:
-        # Generic error
+    except Exception:
+        logger.exception("Unexpected error in chat completion")
         raise HTTPException(
             status_code=500,
             detail={
@@ -162,7 +208,7 @@ async def create_chat_completion_with_upload(
     model: str = Form(...),
     messages: str = Form(...),
     stream: bool = Form(False),
-    files: List[UploadFile] = File(default=[]),
+    files: list[UploadFile] = File(default=[]),
     temperature: float | None = Form(None),
     max_tokens: int | None = Form(None),
     current_user: dict = Depends(get_current_user),
@@ -265,8 +311,8 @@ async def create_chat_completion_with_upload(
                 }
             },
         )
-    except Exception as e:
-        # Generic error
+    except Exception:
+        logger.exception("Unexpected error in chat completion")
         raise HTTPException(
             status_code=500,
             detail={
@@ -283,9 +329,6 @@ async def list_models(
     current_user: dict = Depends(get_current_user),
 ):
     """List available models (proxy to Ollama)."""
-    import httpx
-    from ..config import get_settings
-
     settings = get_settings()
 
     try:

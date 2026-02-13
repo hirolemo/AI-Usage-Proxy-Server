@@ -1,14 +1,14 @@
 # AI Usage Proxy Server
 
-A proxy server that sits between users and Ollama, providing OpenAI-compatible API endpoints, token usage tracking per user, rate limiting, and admin controls.
+This system is a proxy server between users and Ollama that provides chat response and vision processing. Some features include OpenAI-compatible API endpoints, per-user token tracking, rate limiting, billing, and admin controls. Clients use the standard OpenAI SDK — they point at the proxy instead of OpenAI's API. A demo UI for chat, usage viewing, and administration is also included!
 
 ## Architecture
 
 ```
 Client (OpenAI SDK) ──> Proxy Server (Port 8000) ──> Ollama (Port 11434)
-                              |
+                              │
                               v
-                        SQLite DB (Usage/Auth)
+                        SQLite DB (Usage/Auth/Billing)
 ```
 
 ## Setup
@@ -21,7 +21,7 @@ Client (OpenAI SDK) ──> Proxy Server (Port 8000) ──> Ollama (Port 11434)
 ### Installation
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/hirolemo/AI-Usage-Proxy-Server
 cd AI-Usage-Proxy-Server
 
 # Create virtual environment
@@ -41,13 +41,19 @@ You need two terminals:
 ollama serve
 ```
 
+Or if you'd like, you can also specify the number of parallel connections to get concurrent completions (more connections may slow down each completion and requires higher GPU usage):
+```bash
+OLLAMA_NUM_PARALLEL=3 ollama serve
+```
+
+
 **Terminal 2 - Proxy server (must be in venv):**
 ```bash
 source venv/bin/activate
 python main.py
 ```
 
-The server starts at http://localhost:8000. The database (`db/proxy.db`) is created automatically on first run and persists across restarts.
+The server starts at http://localhost:8000. The demo UI is at http://localhost:8000/static/index.html. The database (`db/proxy.db`) is created automatically on first run and persists across restarts.
 
 ### First-Time Setup
 
@@ -56,7 +62,7 @@ Create your first user via the admin API:
 curl -X POST http://localhost:8000/admin/users -H "Authorization: Bearer admin-secret-key" -H "Content-Type: application/json" -d '{"user_id": "my-user"}'
 ```
 
-Save the `api_key` from the response -- you need it for all user requests.
+Save the `api_key` from the response -- you need it for all user requests. You can use the demo UI from here on out, or continue with `curl`-based terminal API calls via the examples below.
 
 ## Configuration
 
@@ -65,10 +71,13 @@ Settings via environment variables or `.env` file:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_MAX_CONCURRENT` | `1` | Max concurrent requests to Ollama |
 | `ADMIN_API_KEY` | `admin-secret-key` | Admin authentication key |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8000` | Server port |
 | `DATABASE_PATH` | `./db/proxy.db` | SQLite database file path |
+| `MAX_UPLOAD_SIZE_MB` | `10` | Max image upload size in MB |
+| `ALLOWED_IMAGE_TYPES` | `jpeg, png, gif, webp` | Accepted image MIME types |
 
 ## API Commands
 
@@ -91,52 +100,139 @@ Require `Authorization: Bearer <api_key>` header.
 
 ```bash
 # Chat completion (non-streaming)
-curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer <api_key>" -d '{"model": "llama3.2", "messages": [{"role": "user", "content": "Hello"}]}'
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api_key>" \
+  -d '{"model": "llama3.2:1b", "messages": [{"role": "user", "content": "Hello"}]}'
 
 # Chat completion (streaming - tokens appear in real time)
-curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer <api_key>" -d '{"model": "llama3.2", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api_key>" \
+  -d '{"model": "llama3.2:1b", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
+
+# Chat completion with JSON response format
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api_key>" \
+  -d '{"model": "llama3.2:1b", "messages": [{"role": "user", "content": "Return a JSON object with a greeting field"}], "response_format": {"type": "json_object"}}'
 
 # Vision model (image URL)
-curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer <api_key>" -d '{"model": "moondream", "messages": [{"role": "user", "content": [{"type": "text", "text": "What is in this image?"}, {"type": "image_url", "image_url": {"url": "https://picsum.photos/200"}}]}]}'
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api_key>" \
+  -d '{"model": "moondream", "messages": [{"role": "user", "content": [{"type": "text", "text": "What is in this image?"}, {"type": "image_url", "image_url": {"url": "https://picsum.photos/200"}}]}]}'
+
+# Image file upload (multipart form data)
+curl -X POST http://localhost:8000/v1/chat/completions/upload \
+  -H "Authorization: Bearer <api_key>" \
+  -F "model=moondream" \
+  -F 'messages=[{"role":"user","content":"What is in this image?"}]' \
+  -F "files=@photo.jpg"
 
 # List available models
-curl http://localhost:8000/v1/models -H "Authorization: Bearer <api_key>"
+curl http://localhost:8000/v1/models \
+  -H "Authorization: Bearer <api_key>"
 
 # Get your token usage
-curl http://localhost:8000/v1/usage -H "Authorization: Bearer <api_key>"
+curl http://localhost:8000/v1/usage \
+  -H "Authorization: Bearer <api_key>"
 
 # Get usage summary by model
-curl http://localhost:8000/v1/usage/summary -H "Authorization: Bearer <api_key>"
+curl http://localhost:8000/v1/usage/summary \
+  -H "Authorization: Bearer <api_key>"
+
+# Get paginated request history
+curl "http://localhost:8000/v1/usage/history?limit=20&offset=0" \
+  -H "Authorization: Bearer <api_key>"
+
+# Get current model pricing
+curl http://localhost:8000/v1/pricing \
+  -H "Authorization: Bearer <api_key>"
 ```
 
 ### Admin Endpoints
 
 Require `Authorization: Bearer <admin_api_key>` header.
 
+#### User Management
+
 ```bash
 # Create a user
-curl -X POST http://localhost:8000/admin/users -H "Authorization: Bearer admin-secret-key" -H "Content-Type: application/json" -d '{"user_id": "user-123"}'
+curl -X POST http://localhost:8000/admin/users \
+  -H "Authorization: Bearer admin-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user-123"}'
 
 # List all users
-curl http://localhost:8000/admin/users -H "Authorization: Bearer admin-secret-key"
+curl http://localhost:8000/admin/users \
+  -H "Authorization: Bearer admin-secret-key"
 
 # Get a specific user (includes API key)
-curl http://localhost:8000/admin/users/user-123 -H "Authorization: Bearer admin-secret-key"
+curl http://localhost:8000/admin/users/user-123 \
+  -H "Authorization: Bearer admin-secret-key"
 
 # Delete a specific user
-curl -X DELETE http://localhost:8000/admin/users/user-123 -H "Authorization: Bearer admin-secret-key"
+curl -X DELETE http://localhost:8000/admin/users/user-123 \
+  -H "Authorization: Bearer admin-secret-key"
 
 # Delete ALL users (clears users, usage records, and rate limits)
-curl -X DELETE http://localhost:8000/admin/users -H "Authorization: Bearer admin-secret-key"
+curl -X DELETE http://localhost:8000/admin/users \
+  -H "Authorization: Bearer admin-secret-key"
+```
 
-# Get a user's usage stats
-curl http://localhost:8000/admin/users/user-123/usage -H "Authorization: Bearer admin-secret-key"
+#### Usage & Rate Limits
+
+```bash
+# Get a user's usage stats (includes cost)
+curl http://localhost:8000/admin/users/user-123/usage \
+  -H "Authorization: Bearer admin-secret-key"
 
 # Get a user's rate limits
-curl http://localhost:8000/admin/users/user-123/limits -H "Authorization: Bearer admin-secret-key"
+curl http://localhost:8000/admin/users/user-123/limits \
+  -H "Authorization: Bearer admin-secret-key"
 
 # Update a user's rate limits
-curl -X PUT http://localhost:8000/admin/users/user-123/limits -H "Authorization: Bearer admin-secret-key" -H "Content-Type: application/json" -d '{"requests_per_minute": 10, "tokens_per_day": 50000, "total_token_limit": 1000000}'
+curl -X PUT http://localhost:8000/admin/users/user-123/limits \
+  -H "Authorization: Bearer admin-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"requests_per_minute": 10, "tokens_per_day": 50000, "total_token_limit": 1000000}'
+```
+
+#### Pricing Management
+
+```bash
+# Set pricing for a model
+curl -X POST http://localhost:8000/admin/pricing \
+  -H "Authorization: Bearer admin-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama3.2:1b", "input_cost_per_million": 0.15, "output_cost_per_million": 0.60}'
+
+# List all model pricing
+curl http://localhost:8000/admin/pricing \
+  -H "Authorization: Bearer admin-secret-key"
+
+# Get pricing for a specific model
+curl http://localhost:8000/admin/pricing/llama3.2:1b \
+  -H "Authorization: Bearer admin-secret-key"
+
+# Update pricing for a model
+curl -X PUT http://localhost:8000/admin/pricing/llama3.2:1b \
+  -H "Authorization: Bearer admin-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama3.2:1b", "input_cost_per_million": 0.20, "output_cost_per_million": 0.80}'
+
+# Delete pricing for a model
+curl -X DELETE http://localhost:8000/admin/pricing/llama3.2:1b \
+  -H "Authorization: Bearer admin-secret-key"
+
+# Get pricing change history (all models)
+curl http://localhost:8000/admin/pricing/history/all \
+  -H "Authorization: Bearer admin-secret-key"
+
+# Get pricing change history for a specific model
+curl http://localhost:8000/admin/pricing/history/llama3.2:1b \
+  -H "Authorization: Bearer admin-secret-key"
 ```
 
 ### Rate Limit Fields
@@ -187,44 +283,47 @@ curl -X PUT http://localhost:8000/admin/users/<user_id>/limits -H "Authorization
 
 ## Database
 
-Data is stored in `db/proxy.db` (SQLite) and persists across server restarts. Three tables:
-- **users** - User IDs and API keys
-- **usage** - Per-request token usage records (for auditing, rate limiting, billing)
-- **rate_limits** - Per-user rate limit configuration
+Data is stored in `db/proxy.db` (SQLite) and persists across server restarts. Five tables:
+- **users** — User IDs and API keys
+- **usage** — Per-request token usage records (tokens, cost, request_id, prompt preview)
+- **rate_limits** — Per-user rate limit configuration
+- **model_pricing** — Per-model input/output cost rates
+- **pricing_history** — Append-only audit log of pricing changes
 
 To start fresh, either delete `db/proxy.db` (requires server restart) or use the delete all users endpoint.
 
 ## Project Structure
+
 ```
 AI-Usage-Proxy-Server/
-├── main.py                      # FastAPI entry point
+├── main.py                      # FastAPI entry point, middleware stack, static mount
 ├── requirements.txt             # Dependencies
+├── mock_ollama.py               # Instant-response Ollama mock for load testing
 ├── db/
 │   └── proxy.db                 # SQLite database (auto-created, gitignored)
 ├── app/
-│   ├── __init__.py
-│   ├── config.py                # Settings (pydantic-settings)
-│   ├── database.py              # SQLite + aiosqlite (users, usage, rate_limits)
+│   ├── config.py                # Settings (pydantic-settings, env vars)
+│   ├── database.py              # SQLite + aiosqlite, connection pool, all queries
 │   ├── middleware/
-│   │   ├── __init__.py
-│   │   ├── auth.py              # API key authentication
-│   │   └── rate_limit.py        # Sliding window rate limiting
+│   │   ├── auth.py              # API key authentication middleware
+│   │   ├── rate_limit.py        # Sliding window rate limiter
+│   │   └── request_id.py        # X-Request-Id middleware
 │   ├── routers/
-│   │   ├── __init__.py
-│   │   ├── completions.py       # /v1/chat/completions (streaming + non-streaming)
-│   │   ├── admin.py             # Admin API (create users, set limits)
-│   │   └── usage.py             # User usage tracking API
+│   │   ├── completions.py       # /v1/chat/completions + /upload, shared handler
+│   │   ├── admin.py             # User CRUD, rate limits, pricing CRUD
+│   │   └── usage.py             # User usage, history, pricing read
 │   ├── services/
-│   │   ├── __init__.py
-│   │   ├── ollama_client.py     # Ollama HTTP client (vision support)
-│   │   └── token_tracker.py     # Token usage tracking
+│   │   ├── ollama_client.py     # Async Ollama HTTP client, OpenAI↔Ollama transforms
+│   │   └── token_tracker.py     # Token + cost tracking, streaming wrapper
 │   └── models/
-│       ├── __init__.py
 │       └── schemas.py           # Pydantic models (OpenAI-compatible)
+├── static/
+│   ├── index.html               # Demo UI layout
+│   ├── app.js                   # API calls, state management, DOM logic
+│   └── style.css                # Styling, responsive design
 └── tests/
-    ├── __init__.py
-    ├── test_basic.py            # Unit tests
-    ├── test_streaming.py        # Streaming integration tests
-    ├── test_vision.py           # Vision model tests
-    └── test_load.py             # Load testing (locust)
+    ├── test_basic.py            # Unit tests (mocked Ollama)
+    ├── test_streaming.py        # Streaming integration tests (OpenAI SDK)
+    ├── test_vision.py           # Vision model tests (OpenAI SDK)
+    └── test_load.py             # Load testing (standalone + locust)
 ```

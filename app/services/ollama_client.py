@@ -1,7 +1,8 @@
 import asyncio
+import base64
 import httpx
 import json
-import base64
+import time
 from typing import AsyncGenerator
 
 from ..config import get_settings
@@ -264,7 +265,6 @@ class OllamaClient:
 
     def _transform_response(self, ollama_response: dict, model: str) -> dict:
         """Transform Ollama response to OpenAI format."""
-        import time
 
         message = ollama_response.get("message", {})
 
@@ -296,7 +296,6 @@ class OllamaClient:
 
     def _transform_stream_chunk(self, ollama_chunk: dict, model: str, include_usage: bool = True) -> dict:
         """Transform Ollama streaming chunk to OpenAI format."""
-        import time
 
         message = ollama_chunk.get("message", {})
         is_done = ollama_chunk.get("done", False)

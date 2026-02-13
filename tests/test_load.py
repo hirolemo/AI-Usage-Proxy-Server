@@ -9,10 +9,6 @@ Or run the quick test:
 """
 
 import os
-import sys
-
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from locust import HttpUser, task, between
@@ -26,7 +22,7 @@ if LOCUST_AVAILABLE:
     class ProxyUser(HttpUser):
         """Simulated user for load testing."""
 
-        wait_time = between(1, 3)  # Wait 1-3 seconds between tasks
+        wait_time = between(0.1, 0.3)  # Short wait for high-throughput testing
 
         def on_start(self):
             """Set up user with API key."""
@@ -60,9 +56,9 @@ if LOCUST_AVAILABLE:
 
 def run_quick_load_test():
     """Run a quick load test without locust."""
-    import asyncio
     import httpx
     import time
+    import threading
     from concurrent.futures import ThreadPoolExecutor
 
     print("Running quick load test...")
@@ -75,6 +71,7 @@ def run_quick_load_test():
     HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
     num_requests = 50
+    lock = threading.Lock()
     successful = 0
     failed = 0
     latencies = []
@@ -94,16 +91,18 @@ def run_quick_load_test():
                 timeout=60.0,
             )
             elapsed = time.time() - start
-            latencies.append(elapsed)
 
-            if response.status_code == 200:
-                successful += 1
-            else:
-                failed += 1
-                print(f"Request {i} failed: {response.status_code}")
+            with lock:
+                latencies.append(elapsed)
+                if response.status_code == 200:
+                    successful += 1
+                else:
+                    failed += 1
+                    print(f"Request {i} failed: {response.status_code}")
         except Exception as e:
-            failed += 1
-            print(f"Request {i} error: {e}")
+            with lock:
+                failed += 1
+                print(f"Request {i} error: {e}")
 
     print(f"Sending {num_requests} requests concurrently...")
     start_time = time.time()

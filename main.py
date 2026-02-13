@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
-from app.database import init_db
+from app.database import init_db, close_db
 from app.middleware.auth import AuthMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.routers import completions_router, admin_router, usage_router
@@ -47,6 +47,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown: Cleanup
+    await close_db()
     await ollama_client.shutdown()
     print("Shutting down...")
 

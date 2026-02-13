@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from ..models.schemas import UsageResponse, ModelUsage
 from ..middleware.auth import get_current_user
@@ -48,8 +48,19 @@ async def get_usage_summary(
     }
 
 
+@router.get("/usage/history")
+async def get_request_history(
+    current_user: dict = Depends(get_current_user),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """Get paginated request history for the current user."""
+    user_id = current_user["id"]
+    return await token_tracker.get_user_request_history(user_id, limit, offset)
+
+
 @router.get("/pricing")
 async def get_pricing(current_user: dict = Depends(get_current_user)):
     """Get current model pricing (read-only for users)."""
     pricing = await get_all_model_pricing()
-    return {"pricing": [dict(p) if not isinstance(p, dict) else p for p in pricing]}
+    return {"pricing": pricing}
