@@ -57,27 +57,12 @@ The server starts at http://localhost:8000. The demo UI is at http://localhost:8
 
 ### First-Time Setup
 
-Create your first user via the admin API:
+You can create your first user via the UI on the admin page: http://localhost:8000/static/index.html (`admin-secret-key` is the admin API key), or in a terminal via the admin API:
 ```bash
 curl -X POST http://localhost:8000/admin/users -H "Authorization: Bearer admin-secret-key" -H "Content-Type: application/json" -d '{"user_id": "my-user"}'
 ```
 
-Save the `api_key` from the response -- you need it for all user requests. You can use the demo UI from here on out, or continue with `curl`-based terminal API calls via the examples below.
-
-## Configuration
-
-Settings via environment variables or `.env` file:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
-| `OLLAMA_MAX_CONCURRENT` | `1` | Max concurrent requests to Ollama |
-| `ADMIN_API_KEY` | `admin-secret-key` | Admin authentication key |
-| `HOST` | `0.0.0.0` | Server bind address |
-| `PORT` | `8000` | Server port |
-| `DATABASE_PATH` | `./db/proxy.db` | SQLite database file path |
-| `MAX_UPLOAD_SIZE_MB` | `10` | Max image upload size in MB |
-| `ALLOWED_IMAGE_TYPES` | `jpeg, png, gif, webp` | Accepted image MIME types |
+Save the user's `api_key` from the response - you'll need it for all user requests. You can also view all user keys in the UI's admin panel and use the site from here on out, or continue with `curl`-based terminal API calls via the examples below. For the sake of the demo, there's only 1 admin key (`admin-secret-key`), since multiple admins would offer the same functionality.
 
 ## API Commands
 
@@ -244,6 +229,32 @@ curl http://localhost:8000/admin/pricing/history/llama3.2:1b \
 | `tokens_per_minute` | 100000 | Max tokens per minute |
 | `tokens_per_day` | 1000000 | Max tokens per day |
 | `total_token_limit` | unlimited | Lifetime token cap |
+
+## Configuration
+
+Settings via environment variables or `.env` file:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_MAX_CONCURRENT` | `1` | Max concurrent requests to Ollama |
+| `ADMIN_API_KEY` | `admin-secret-key` | Admin authentication key |
+| `HOST` | `0.0.0.0` | Server bind address |
+| `PORT` | `8000` | Server port |
+| `DATABASE_PATH` | `./db/proxy.db` | SQLite database file path |
+| `MAX_UPLOAD_SIZE_MB` | `10` | Max image upload size in MB |
+| `ALLOWED_IMAGE_TYPES` | `jpeg, png, gif, webp` | Accepted image MIME types |
+
+In app/config.py:10, the Pydantic Settings class is configured with env_file=".env". I wanted to allow support for 
+loading configs from a .env file, but made it optional. If the file doesn't exist, Pydantic 
+simply ignores it and falls back to actual environment variables or defaults.                         
+                                                                                                      
+To accomplish this, you can create a .env file with the following contents:                                              
+```
+OLLAMA_BASE_URL=http://localhost:11434
+ADMIN_API_KEY=my-secret
+PORT=9000
+```
 
 ## Testing
 
