@@ -267,7 +267,7 @@ pytest tests/test_basic.py -v
 
 ### Integration Tests (requires Ollama + running server)
 ```bash
-SKIP_INTEGRATION_TESTS=false pytest tests/test_streaming.py tests/test_vision.py -v -s
+pytest tests/test_streaming.py tests/test_vision.py -v -s
 ```
 
 ### Load Testing (requires Ollama + running server)

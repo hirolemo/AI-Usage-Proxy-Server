@@ -13,13 +13,6 @@ import pytest
 from openai import OpenAI
 
 
-# Skip these tests if Ollama is not available
-pytestmark = pytest.mark.skipif(
-    os.environ.get("SKIP_INTEGRATION_TESTS", "true").lower() == "true",
-    reason="Integration tests disabled. Set SKIP_INTEGRATION_TESTS=false to run.",
-)
-
-
 @pytest.fixture
 def openai_client():
     """Create an OpenAI client pointing to our proxy.

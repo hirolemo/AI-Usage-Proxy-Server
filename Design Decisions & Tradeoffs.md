@@ -249,7 +249,7 @@ Web UI for live graphs: `http://localhost:8089`
 pytest tests/test_basic.py -v
 
 # Integration tests (requires Ollama running + server running on port 8000)
-SKIP_INTEGRATION_TESTS=false pytest tests/test_streaming.py tests/test_vision.py -v -s
+pytest tests/test_streaming.py tests/test_vision.py -v -s
 
 # Quick load test (requires running server)
 TEST_API_KEY=<api_key> python tests/test_load.py
